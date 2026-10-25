@@ -34,7 +34,6 @@ export async function loadSavedState(): Promise<State | null> {
 export function createLocalStatePersister(): StatePersister & {baseline(initial: State): void} {
   let lastParams: State['params'] | undefined;
   let lastView: State['view'] | undefined;
-  let lastPreview: State['preview'] | undefined;
   let latest: State | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let askedForPersistence = false;
@@ -62,14 +61,13 @@ export function createLocalStatePersister(): StatePersister & {baseline(initial:
     baseline: (initial: State) => {
       lastParams = initial.params;
       lastView = initial.view;
-      lastPreview = initial.preview;
     },
     set: async (state: State) => {
-      // Most state updates are render logs / outputs; only params, view and preview are saved.
-      if (state.params === lastParams && state.view === lastView && state.preview === lastPreview) return;
+      // Most state updates are render logs / outputs / thumbnails. Only a change to the visitor's
+      // params or view starts a save (the preview thumbnail is saved along with them).
+      if (state.params === lastParams && state.view === lastView) return;
       lastParams = state.params;
       lastView = state.view;
-      lastPreview = state.preview;
       latest = state;
       if (!askedForPersistence) {
         askedForPersistence = true;
