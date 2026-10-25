@@ -1,7 +1,8 @@
 // Portions of this file are Copyright 2021 Google LLC, and licensed under GPL2+. See COPYING.
 
 import { checkSyntax, render, RenderArgs, RenderOutput } from "../runner/actions.ts";
-import { MultiLayoutComponentId, SingleLayoutComponentId, State, StatePersister } from "./app-state.ts";
+import { MultiLayoutComponentId, SingleLayoutComponentId, Source, State, StatePersister } from "./app-state.ts";
+import { isTextPath } from "./upload.ts";
 import { VALID_EXPORT_FORMATS_2D, VALID_EXPORT_FORMATS_3D } from './formats.ts';
 import { bubbleUpDeepMutations } from "./deep-mutate.ts";
 import { downloadUrl, fetchSource, formatBytes, formatMillis, readFileAsDataURL } from '../utils.ts'
@@ -153,6 +154,28 @@ export class Model {
     }
   }
 
+  // Adds (or replaces, by path) files uploaded through the editor menu.
+  addSources(uploaded: Source[]) {
+    if (uploaded.length === 0) return;
+    const firstScad = uploaded.find(u => u.path.endsWith('.scad'));
+    if (this.mutate(s => {
+      const paths = new Set(uploaded.map(u => u.path));
+      s.params.sources = [...s.params.sources.filter(src => !paths.has(src.path)), ...uploaded];
+      if (firstScad && firstScad.path !== s.params.activePath) {
+        s.params.activePath = firstScad.path;
+        s.lastCheckerRun = undefined;
+        s.output = undefined;
+        s.export = undefined;
+        s.preview = undefined;
+        s.currentRunLogs = undefined;
+        s.error = undefined;
+        s.is2D = undefined;
+      }
+    })) {
+      this.processSource();
+    }
+  }
+
   get source(): string {
     return this.state.params.sources.find(src => src.path === this.state.params.activePath)?.content ?? '';
   }
@@ -164,7 +187,8 @@ export class Model {
 
   private async processSource() {
     let src = this.state.params.sources.find(src => src.path === this.state.params.activePath);
-    if (src && src.content == null) {
+    const activeIsText = isTextPath(this.state.params.activePath) || this.state.params.activePath.indexOf('.') < 0;
+    if (src && src.content == null && activeIsText) {
       let {path, url} = src;
       // Transform https://github.com/tenstad/keyboard/blob/main/keyboard.scad to https://raw.githubusercontent.com/tenstad/keyboard/refs/heads/main/keyboard.scad
       let match;
@@ -176,7 +200,8 @@ export class Model {
         s.params.sources = s.params.sources.map(src => src.path === s.params.activePath ? {...src, content} : src);
       });
     }
-    if (this.source.trim() !== '') {
+    // Binary / drawing files (STL, DXF, SVG...) have no editable text: render them directly.
+    if (!activeIsText || this.source.trim() !== '') {
       if (this.state.params.activePath.endsWith('.scad')) {
         this.checkSyntax();
       }
@@ -307,7 +332,7 @@ export class Model {
   }
 
   async saveProject() {
-    if (this.state.params.sources.length == 1) {
+    if (this.state.params.sources.length == 1 && typeof this.state.params.sources[0].content === 'string') {
       const content = this.state.params.sources[0].content;
       const contentBytes = new TextEncoder().encode(content);
       const blob = new Blob([contentBytes], {type: 'text/plain'});

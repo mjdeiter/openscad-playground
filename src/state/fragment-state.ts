@@ -5,19 +5,27 @@ import { VALID_EXPORT_FORMATS_2D, VALID_EXPORT_FORMATS_3D } from './formats.ts';
 import { validateArray, validateBoolean, validateString, validateStringEnum } from "../utils.ts";
 import { createInitialState, defaultModelColor, defaultSourcePath } from "./initial-state.ts";
 
-export function buildUrlForStateParams(state: State) {//partialState: {params: State['params'], view: State['view']}) {
-  return `${location.protocol}//${location.host}${location.pathname}#${encodeStateParamsAsFragment(state)}`;
+export async function buildUrlForStateParams(state: State): Promise<string> {
+  return `${location.protocol}//${location.host}${location.pathname}#${await encodeStateParamsAsFragment(state)}`;
+}
+export function hasStateFragment(): boolean {
+  return window.location.hash.startsWith('#') && window.location.hash.length > 1;
 }
 export async function writeStateInFragment(state: State) {
   history.replaceState(state, '', '#' + await encodeStateParamsAsFragment(state));
 }
 async function compressString(input: string): Promise<string> {
-  return btoa(String.fromCharCode(...new Uint8Array(await new Response(new ReadableStream({
+  const bytes = new Uint8Array(await new Response(new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(input));
       controller.close();
     }
-  }).pipeThrough(new CompressionStream('gzip'))).arrayBuffer())));
+  }).pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
 }
 
 async function decompressString(compressedInput: string): Promise<string> {
@@ -72,41 +80,46 @@ export async function readStateFromFragment(): Promise<State | null> {
         // Backwards compatibility
         obj = JSON.parse(decodeURIComponent(serialized));
       }
-      const {params, view, preview} = obj;
-      return {
-        params: {
-          activePath: validateString(params?.activePath, () => defaultSourcePath),
-          features: validateArray(params?.features, validateString),
-          vars: params?.vars, // TODO: validate!
-          // Source deserialization also handles legacy links (source + sourcePath)
-          sources: params?.sources ?? (params?.source ? [{path: params?.sourcePath, content: params?.source}] : undefined), // TODO: validate!
-          exportFormat2D: validateStringEnum(params?.exportFormat2D, Object.keys(VALID_EXPORT_FORMATS_2D), s => 'svg'),
-          exportFormat3D: validateStringEnum(params?.exportFormat3D, Object.keys(VALID_EXPORT_FORMATS_3D), s => 'stl'),
-          extruderColors: validateArray(params?.extruderColors, validateString, () => undefined as any as []),
-        },
-        preview: preview ? {
-          thumbhash: preview.thumbhash ? validateString(preview.thumbhash) : undefined,
-          blurhash: preview.blurhash ? validateString(preview.blurhash) : undefined,
-        } : undefined,
-        view: {
-          logs: validateBoolean(view?.logs),
-          extruderPickerVisibility: validateStringEnum(view?.extruderPickerVisibility, ['editing', 'exporting'], s => undefined),
-          layout: {
-            mode: validateStringEnum(view?.layout?.mode, ['multi', 'single']),
-            focus: validateStringEnum(view?.layout?.focus, ['editor', 'viewer', 'customizer'], s => false),
-            editor: validateBoolean(view?.layout['editor']),
-            viewer: validateBoolean(view?.layout['viewer']),
-            customizer: validateBoolean(view?.layout['customizer']),
-          },
-          collapsedCustomizerTabs: validateArray(view?.collapsedCustomizerTabs, validateString),
-          color: validateString(view?.color, () => defaultModelColor),
-          showAxes: validateBoolean(view?.layout?.showAxis, () => true),
-          lineNumbers: validateBoolean(view?.layout?.lineNumbers, () => false)
-        }
-      };
+      return stateFromSerialized(obj);
     } catch (e) {
       console.error(e);
     }
   }
   return null;
+}
+
+// Validates a deserialized {params, view, preview} object (from a URL fragment or a saved session).
+export function stateFromSerialized(obj: any): State {
+  const {params, view, preview} = obj;
+  return {
+    params: {
+      activePath: validateString(params?.activePath, () => defaultSourcePath),
+      features: validateArray(params?.features, validateString),
+      vars: params?.vars, // TODO: validate!
+      // Source deserialization also handles legacy links (source + sourcePath)
+      sources: params?.sources ?? (params?.source ? [{path: params?.sourcePath, content: params?.source}] : undefined), // TODO: validate!
+      exportFormat2D: validateStringEnum(params?.exportFormat2D, Object.keys(VALID_EXPORT_FORMATS_2D), s => 'svg'),
+      exportFormat3D: validateStringEnum(params?.exportFormat3D, Object.keys(VALID_EXPORT_FORMATS_3D), s => 'stl'),
+      extruderColors: validateArray(params?.extruderColors, validateString, () => undefined as any as []),
+    },
+    preview: preview ? {
+      thumbhash: preview.thumbhash ? validateString(preview.thumbhash) : undefined,
+      blurhash: preview.blurhash ? validateString(preview.blurhash) : undefined,
+    } : undefined,
+    view: {
+      logs: validateBoolean(view?.logs),
+      extruderPickerVisibility: validateStringEnum(view?.extruderPickerVisibility, ['editing', 'exporting'], s => undefined),
+      layout: {
+        mode: validateStringEnum(view?.layout?.mode, ['multi', 'single']),
+        focus: validateStringEnum(view?.layout?.focus, ['editor', 'viewer', 'customizer'], s => false),
+        editor: validateBoolean(view?.layout['editor']),
+        viewer: validateBoolean(view?.layout['viewer']),
+        customizer: validateBoolean(view?.layout['customizer']),
+      },
+      collapsedCustomizerTabs: validateArray(view?.collapsedCustomizerTabs, validateString),
+      color: validateString(view?.color, () => defaultModelColor),
+      showAxes: validateBoolean(view?.layout?.showAxis, () => true),
+      lineNumbers: validateBoolean(view?.layout?.lineNumbers, () => false)
+    }
+  };
 }

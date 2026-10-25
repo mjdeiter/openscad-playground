@@ -6,7 +6,8 @@ import {App} from './components/App.tsx';
 import { createEditorFS } from './fs/filesystem.ts';
 import { registerOpenSCADLanguage } from './language/openscad-register-language.ts';
 import { zipArchives } from './fs/zip-archives.ts';
-import {readStateFromFragment} from './state/fragment-state.ts'
+import {readStateFromFragment, hasStateFragment} from './state/fragment-state.ts'
+import { createLocalStatePersister, loadSavedState, setPersistenceMode } from './state/local-state.ts';
 import { createInitialState } from './state/initial-state.ts';
 import './index.css';
 
@@ -66,9 +67,11 @@ window.addEventListener('load', async () => {
   await registerOpenSCADLanguage(fs, '/', zipArchives);
 
   let statePersister: StatePersister;
+  let localPersister: ReturnType<typeof createLocalStatePersister> | undefined;
   let persistedState: State | null = null;
 
   if (isInStandaloneMode()) {
+    setPersistenceMode('pwa');
     const fs: FS = BrowserFS.BFSRequire('fs')
     try {
       const data = JSON.parse(new TextDecoder("utf-8").decode(fs.readFileSync('/state.json')));
@@ -82,14 +85,24 @@ window.addEventListener('load', async () => {
         fs.writeFile('/state.json', JSON.stringify({view, params}));
       }
     };
-  } else {
+  } else if (hasStateFragment()) {
+    // Shared link / "New project" tab: the state travels in the URL (upstream behaviour)
+    // and the visitor's saved session is left untouched.
+    setPersistenceMode('url');
     persistedState = await readStateFromFragment();
     statePersister = {
       set: writeStateInFragment,
     };
+  } else {
+    // Plain URL: keep this visitor's session (sources, uploads, layout) in their own browser.
+    setPersistenceMode('browser');
+    persistedState = await loadSavedState();
+    localPersister = createLocalStatePersister();
+    statePersister = localPersister;
   }
 
   const initialState = createInitialState(persistedState);
+  localPersister?.baseline(initialState);
 
   const root = ReactDOM.createRoot(
     document.getElementById('root') as HTMLElement
