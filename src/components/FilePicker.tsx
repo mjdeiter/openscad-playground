@@ -7,6 +7,7 @@ import { ModelContext, FSContext } from './contexts.ts';
 import { getParentDir, join } from '../fs/filesystem.ts';
 import { defaultSourcePath } from '../state/initial-state.ts';
 import { zipArchives } from '../fs/zip-archives.ts';
+import { fileKindBadge } from '../state/upload.ts';
 
 const biasedCompare = (a: string, b: string) => 
   a === 'openscad' ? -1 : b === 'openscad' ? 1 : a.localeCompare(b);
@@ -122,6 +123,12 @@ export default function FilePicker({className, style}: {className?: string, styl
             }
           }}
           filter
+          nodeTemplate={(node) => {
+            const badge = typeof node.data === 'string' ? fileKindBadge(node.data) : null;
+            return badge
+              ? <span>{node.label} <span style={{opacity: 0.6, fontSize: '0.8em', border: '1px solid currentColor', borderRadius: 4, padding: '0 4px', marginLeft: 4}}>{badge}</span></span>
+              : <span>{node.label}</span>;
+          }}
           style={style}
           options={fsItems} />
   )

@@ -17,3 +17,8 @@ Changes relative to upstream:
 - Deployment build strips the "Fork me on GitHub" ribbon (done by the deploy script, not in this source).
 
 `tests/e2e/persistence_upload.py` is a Playwright check for the above.
+- **File management:** New file, Copy to new file and Delete this file in the editor menu; 2D / 3D / height-map /
+  not-importable badges in the file picker.
+- **Upload helper:** after uploading a DXF, SVG, STL/3MF or PNG, a button inserts starter code
+  (`linear_extrude`, `import`, `surface`). For ASCII DXFs it also reads the layer names and drawing units
+  (`$INSUNITS`) and adds the matching `scale()` and layer hint.

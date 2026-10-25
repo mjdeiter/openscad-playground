@@ -14,7 +14,7 @@ import { ModelContext, FSContext } from './contexts.ts';
 import FilePicker, {  } from './FilePicker.tsx';
 import { Toast } from 'primereact/toast';
 import { Source } from '../state/app-state.ts';
-import { describeUpload, fileToSource, MAX_UPLOAD_BYTES } from '../state/upload.ts';
+import { analyzeDxf, buildImportSnippet, describeUpload, DxfInfo, extensionOf, fileToSource, MAX_UPLOAD_BYTES, sanitizeFileName } from '../state/upload.ts';
 import { clearSavedState, persistenceMode } from '../state/local-state.ts';
 import { formatBytes } from '../utils.ts';
 
@@ -40,6 +40,58 @@ export default function EditorPanel({className, style}: {className?: string, sty
   const toast = useRef<Toast>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Inserts starter code into the file being edited (at the selection, or at the end of the file).
+  const insertSnippet = (snippet: string) => {
+    if (!editor || !model.state.params.activePath.endsWith('.scad')) {
+      toast.current?.show({severity: 'warn', summary: 'Open a .scad file first', detail: 'Starter code goes into the file you are editing.', life: 6000});
+      return;
+    }
+    const sel = editor.getSelection();
+    const untouched = !sel || (sel.isEmpty() && sel.startLineNumber === 1 && sel.startColumn === 1);
+    const editorModel = editor.getModel();
+    const end = editorModel ? editorModel.getFullModelRange().getEndPosition() : null;
+    const range = !untouched && sel ? sel : end ? new monaco.Range(end.lineNumber, end.column, end.lineNumber, end.column) : new monaco.Range(1, 1, 1, 1);
+    const prefix = !untouched || !end || end.column === 1 ? '' : '\n';
+    editor.executeEdits('upload-helper', [{range, text: prefix + snippet, forceMoveMarkers: true}]);
+    editor.focus();
+  };
+
+  // Asks for a file name; returns an absolute path (".scad" is added when no extension is given).
+  const askForPath = (message: string, suggestion: string): string | null => {
+    const answer = window.prompt(message, suggestion);
+    if (answer == null || answer.trim() === '') return null;
+    let name = sanitizeFileName(answer.trim());
+    if (!/\.[^./]+$/.test(name)) name += '.scad';
+    return '/' + name;
+  };
+  const pathTaken = (path: string) => {
+    if (!model.state.params.sources.some(s => s.path === path)) return false;
+    toast.current?.show({severity: 'error', summary: `${path} already exists`, detail: 'Pick a different name.', life: 6000});
+    return true;
+  };
+
+  const newFile = () => {
+    const path = askForPath('Name for the new file:', 'untitled.scad');
+    if (!path || pathTaken(path)) return;
+    model.addSources([{path, content: `// ${path.slice(1)}\n`}]);
+  };
+
+  const copyFile = () => {
+    const {activePath, sources} = model.state.params;
+    const current = sources.find(s => s.path === activePath);
+    const dot = activePath.lastIndexOf('.');
+    const suggestion = dot > 0 ? activePath.slice(1, dot) + '-copy' + activePath.slice(dot) : activePath.slice(1) + '-copy';
+    const path = askForPath('Name for the copy:', suggestion);
+    if (!path || pathTaken(path)) return;
+    model.addSources([current?.url && current.content == null ? {path, url: current.url} : {path, content: model.source}]);
+  };
+
+  const deleteFile = () => {
+    const {activePath, sources} = model.state.params;
+    if (sources.length <= 1) return;
+    if (window.confirm(`Delete ${activePath}?`)) model.deleteSource(activePath);
+  };
+
   const onFilesChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
@@ -47,6 +99,7 @@ export default function EditorPanel({className, style}: {className?: string, sty
     try {
       const existing = new Set(model.state.params.sources.map(s => s.path));
       const accepted: Source[] = [];
+      const acceptedFiles: File[] = [];
       for (const file of files) {
         if (file.size > MAX_UPLOAD_BYTES) {
           toast.current?.show({severity: 'error', summary: `${file.name} is too large`, detail: `Limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`, life: 8000});
@@ -55,14 +108,34 @@ export default function EditorPanel({className, style}: {className?: string, sty
         const source = await fileToSource(file);
         if (existing.has(source.path) && !window.confirm(`Replace the existing ${source.path}?`)) continue;
         accepted.push(source);
+        acceptedFiles.push(file);
       }
       if (accepted.length === 0) return;
       model.addSources(accepted);
+
+      const helpers: {path: string, snippet: string}[] = [];
+      for (let i = 0; i < accepted.length; i++) {
+        let dxf: DxfInfo | undefined;
+        if (extensionOf(accepted[i].path) === 'dxf' && acceptedFiles[i].size <= 20 * 1024 * 1024) {
+          try { dxf = analyzeDxf(await acceptedFiles[i].arrayBuffer()); } catch (err) { console.warn('DXF analysis failed:', err); }
+        }
+        const snippet = buildImportSnippet(accepted[i].path, dxf);
+        if (snippet) helpers.push({path: accepted[i].path, snippet});
+      }
       toast.current?.show({
         severity: 'success',
         summary: accepted.length === 1 ? `Added ${accepted[0].path}` : `Added ${accepted.length} files`,
-        detail: <span style={{whiteSpace: 'pre-line'}}>{accepted.map(s => `${s.path}: ${describeUpload(s.path)}`).join('\n')}</span>,
-        life: 12000,
+        detail: (
+          <div>
+            <span style={{whiteSpace: 'pre-line'}}>{accepted.map(s => `${s.path}: ${describeUpload(s.path)}`).join('\n')}</span>
+            {helpers.slice(0, 4).map(h => (
+              <div key={h.path} style={{marginTop: 8}}>
+                <Button size="small" outlined icon="pi pi-code" label={`Insert starter code for ${h.path.slice(1)}`} onClick={() => insertSnippet(h.snippet)} />
+              </div>
+            ))}
+          </div>
+        ),
+        life: helpers.length > 0 ? 30000 : 12000,
       });
       if (persistenceMode === 'browser' && navigator.storage?.estimate) {
         const {usage, quota} = await navigator.storage.estimate();
@@ -172,15 +245,14 @@ export default function EditorPanel({className, style}: {className?: string, sty
             separator: true
           },  
           {
-            // TODO: popup to ask for file name
             label: "New file",
             icon: 'pi pi-plus',
-            disabled: true,
+            command: newFile,
           },
           {
             label: "Copy to new file",
             icon: 'pi pi-clone',
-            disabled: true,
+            command: copyFile,
           },
           {
             label: "Upload file(s)",
@@ -191,6 +263,12 @@ export default function EditorPanel({className, style}: {className?: string, sty
             label: 'Download sources',
             icon: 'pi pi-download',
             command: () => model.saveProject(),
+          },
+          {
+            label: 'Delete this file',
+            icon: 'pi pi-times',
+            disabled: state.params.sources.length <= 1,
+            command: deleteFile,
           },
           {
             separator: true

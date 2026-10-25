@@ -176,6 +176,27 @@ export class Model {
     }
   }
 
+  // Removes an uploaded/created file. The last remaining file can't be deleted.
+  deleteSource(path: string) {
+    if (this.state.params.sources.length <= 1) return;
+    if (this.mutate(s => {
+      s.params.sources = s.params.sources.filter(src => src.path !== path);
+      if (s.params.activePath === path) {
+        const next = s.params.sources.find(src => src.path.endsWith('.scad')) ?? s.params.sources[0];
+        s.params.activePath = next.path;
+        s.lastCheckerRun = undefined;
+        s.output = undefined;
+        s.export = undefined;
+        s.preview = undefined;
+        s.currentRunLogs = undefined;
+        s.error = undefined;
+        s.is2D = undefined;
+      }
+    })) {
+      this.processSource();
+    }
+  }
+
   get source(): string {
     return this.state.params.sources.find(src => src.path === this.state.params.activePath)?.content ?? '';
   }

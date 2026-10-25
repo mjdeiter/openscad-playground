@@ -25,6 +25,10 @@ GET_SESSION_JS = """async () => new Promise((res) => {
 })"""
 
 failed = False
+answers = {'prompt': ''}
+def on_dialog(d):
+    d.accept(answers['prompt']) if d.type == 'prompt' else d.accept()
+
 def check(cond, msg):
     global failed
     print(('PASS ' if cond else 'FAIL ') + msg, flush=True)
@@ -58,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     b = p.chromium.launch()
     ctx = b.new_context(viewport={'width': 1400, 'height': 900})
     page = ctx.new_page()
-    page.on('dialog', lambda d: d.accept())
+    page.on('dialog', on_dialog)
     page.goto(BASE); ready(page)
 
     items = menu(page)
@@ -84,6 +88,12 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     check((s or {}).get('params', {}).get('activePath') == '/wrap.scad', 'uploaded .scad became the active file')
     check(page.url.rstrip('/') == BASE.rstrip('/'), f'URL stays clean: {page.url}')
 
+    page.click('button:has-text("Insert starter code for part.dxf")')
+    time.sleep(2)
+    s = session(page)
+    wrap = {x['path']: x for x in s['params']['sources']}['/wrap.scad']['content']
+    check(wrap.count('import("/part.dxf")') >= 2 and 'layers: "Lay' in wrap, 'Insert starter code adds an import() with the DXF layer note')
+
     model_src = ''
     for _ in range(60):
         model_src = page.evaluate("() => document.querySelector('model-viewer')?.getAttribute('src') || ''")
@@ -95,6 +105,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     page.click('.p-treeselect')
     page.wait_for_selector('.p-treeselect-panel .p-treenode', timeout=15000)
     labels = page.evaluate("() => [...document.querySelectorAll('.p-treeselect-panel .p-treenode')].map(e => e.innerText.split('\\n')[0].trim())")
+    labels = [l.split()[0] if l.split() else l for l in labels]  # drop the 2D/3D badge text
     check({'part.dxf', 'blob.stl', 'wrap.scad'} <= set(labels), f'uploaded files listed after reload: {labels}')
     page.keyboard.press('Escape')
 
@@ -105,8 +116,31 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     s = session(page)
     check('persisted-edit-marker' in json.dumps(s), 'a typed edit in the editor is saved')
 
+    page.click('.p-treeselect'); page.wait_for_selector('.p-treeselect-panel .p-treenode', timeout=15000)
+    panel = page.inner_text('.p-treeselect-panel')
+    check('2D' in panel and '3D' in panel, 'file picker shows 2D / 3D badges for part.dxf / blob.stl')
+    page.keyboard.press('Escape')
+
+    def menu_click(label):
+        page.click('button[title="Editor menu"]'); page.click('.p-menuitem:has-text("%s")' % label)
+    def sources():
+        return {x['path']: x for x in session(page)['params']['sources']}
+
+    answers['prompt'] = 'e2e-new'
+    menu_click('New file'); time.sleep(2)
+    check('/e2e-new.scad' in sources(), 'New file creates /e2e-new.scad (".scad" added)')
+    check(session(page)['params']['activePath'] == '/e2e-new.scad', 'new file becomes the active file')
+
+    answers['prompt'] = 'e2e-copy.scad'
+    menu_click('Copy to new file'); time.sleep(2)
+    src = sources()
+    check('/e2e-copy.scad' in src and src['/e2e-copy.scad'].get('content') == src['/e2e-new.scad'].get('content'), 'Copy to new file duplicates the active file')
+
+    menu_click('Delete this file'); time.sleep(2)
+    check('/e2e-copy.scad' not in sources() and '/e2e-new.scad' in sources(), 'Delete this file removes just the active file')
+
     before = page.evaluate(GET_SESSION_JS)
-    page2 = ctx.new_page(); page2.on('dialog', lambda d: d.accept())
+    page2 = ctx.new_page(); page2.on('dialog', on_dialog)
     page2.goto(BASE + '#blank'); ready(page2); time.sleep(2)
     check('Clear my saved data' not in menu(page2), 'URL-fragment tab runs in URL mode (no saved-data item)')
     check(before == page.evaluate(GET_SESSION_JS), '#blank tab leaves the saved session untouched')
