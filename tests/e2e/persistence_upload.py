@@ -98,6 +98,13 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     check({'part.dxf', 'blob.stl', 'wrap.scad'} <= set(labels), f'uploaded files listed after reload: {labels}')
     page.keyboard.press('Escape')
 
+    page.click('.monaco-editor .view-lines')
+    page.keyboard.press('Control+End')
+    page.keyboard.type('// persisted-edit-marker')
+    time.sleep(2)
+    s = session(page)
+    check('persisted-edit-marker' in json.dumps(s), 'a typed edit in the editor is saved')
+
     before = page.evaluate(GET_SESSION_JS)
     page2 = ctx.new_page(); page2.on('dialog', lambda d: d.accept())
     page2.goto(BASE + '#blank'); ready(page2); time.sleep(2)

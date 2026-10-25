@@ -32,17 +32,29 @@ export async function loadSavedState(): Promise<State | null> {
 }
 
 export function createLocalStatePersister(): StatePersister & {baseline(initial: State): void} {
-  let lastParams: State['params'] | undefined;
-  let lastView: State['view'] | undefined;
+  // Model.mutate() edits the state tree in place (only the top-level object gets a new identity),
+  // so object identity can't tell us whether the visitor's data changed. Compare content instead:
+  // cheap `set` calls just remember the latest state, and the debounced flush serialises it and
+  // writes only when {params, view} really differ from what was last saved.
   let latest: State | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastSaved: string | undefined;
   let askedForPersistence = false;
+
+  const snapshot = (s: State) => JSON.stringify({params: s.params, view: s.view});
 
   const flush = async () => {
     timer = undefined;
     if (disabled || !latest) return;
     try {
+      const snap = snapshot(latest);
+      if (snap === lastSaved) return;
+      if (!askedForPersistence) {
+        askedForPersistence = true;
+        navigator.storage?.persist?.().catch(() => {});
+      }
       await idbSet(KEY, JSON.stringify({params: latest.params, view: latest.view, preview: latest.preview}));
+      lastSaved = snap;
     } catch (e) {
       console.error('Failed to save the session in this browser:', e);
     }
@@ -59,22 +71,11 @@ export function createLocalStatePersister(): StatePersister & {baseline(initial:
     // The state the app started with (restored or default). Nothing is written until the
     // visitor actually changes something, so a first visit doesn't pin today's default example.
     baseline: (initial: State) => {
-      lastParams = initial.params;
-      lastView = initial.view;
+      lastSaved = snapshot(initial);
     },
     set: async (state: State) => {
-      // Most state updates are render logs / outputs / thumbnails. Only a change to the visitor's
-      // params or view starts a save (the preview thumbnail is saved along with them).
-      if (state.params === lastParams && state.view === lastView) return;
-      lastParams = state.params;
-      lastView = state.view;
       latest = state;
-      if (!askedForPersistence) {
-        askedForPersistence = true;
-        navigator.storage?.persist?.().catch(() => {});
-      }
-      if (timer !== undefined) clearTimeout(timer);
-      timer = setTimeout(flush, SAVE_DELAY_MS);
+      if (timer === undefined) timer = setTimeout(flush, SAVE_DELAY_MS);
     }
   };
 }
