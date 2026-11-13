@@ -176,7 +176,8 @@ export default function FilePicker({className, style}: {className?: string, styl
     if (parent === '/') {
       fsItems.push({
         icon: 'pi pi-home',
-        label: path.split('/').pop(),
+        // A PrimeReact nodeTemplate here breaks the tree's folder expansion, so the kind badge is part of the label text.
+        label: [path.split('/').pop(), fileKindBadge(path)].filter(Boolean).join(' '),
         data: path,
         key: path,
         selectable: true,
@@ -209,15 +210,10 @@ export default function FilePicker({className, style}: {className?: string, styl
             if (loading) return <span><i className="pi pi-spin pi-spinner" /> Loading {loading}...</span>;
             if (error) return <span title={error}><i className="pi pi-exclamation-triangle" /> {error}</span>;
             const selected = Array.isArray(node) ? node[0] : node;
-            return <span>{selected?.label ?? props.placeholder}</span>;
+            const shown = typeof selected?.data === 'string' && fileKindBadge(selected.data) ? selected.data.split('/').pop() : selected?.label;
+            return <span>{shown ?? props.placeholder}</span>;
           }}
           filter
-          nodeTemplate={(node) => {
-            const badge = typeof node.data === 'string' ? fileKindBadge(node.data) : null;
-            return badge
-              ? <span>{node.label} <span style={{opacity: 0.6, fontSize: '0.8em', border: '1px solid currentColor', borderRadius: 4, padding: '0 4px', marginLeft: 4}}>{badge}</span></span>
-              : <span>{node.label}</span>;
-          }}
           expandedKeys={expandedKeys}
           onToggle={e => setExpandedKeys(e.value as Record<string, boolean>)}
           style={style}
