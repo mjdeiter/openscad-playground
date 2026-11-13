@@ -33,7 +33,7 @@ describe('editor select all', () => {
     await page.waitForSelector('.monaco-editor textarea, .monaco-editor .native-edit-context');
     await page.waitForFunction(() => window.monaco?.editor.getEditors().length > 0);
     await page.click('.monaco-editor .view-lines');
-  });
+  }, 30000); // cold dev server + Monaco init can exceed Jest's 5s default hook timeout on CI
 
   test('Monaco sees macOS (no global process polyfill)', async () => {
     expect(await page.evaluate(() => typeof process === 'undefined' || process.platform)).not.toBe('browser');
