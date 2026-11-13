@@ -12,23 +12,19 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
 
-    <link rel="prefetch" href="openscad.wasm">
+    <link rel="preload" href="openscad.wasm" as="fetch" crossorigin>
+    <!-- Monaco is loaded from this CDN once the app script has run (see @monaco-editor/loader): open the
+         connections (DNS + TCP + TLS, a few round trips) meanwhile; one per credentials mode (the loader's
+         plain script tags and its CORS-mode module imports use different connection pools). -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="prefetch" href="openscad-worker.js">
-    <link rel="prefetch" href="libraries/fonts.zip">
-
-    <link rel="prefetch" href="libraries/MCAD.zip">
-    <link rel="prefetch" href="libraries/BOSL2.zip">
-    <link rel="prefetch" href="libraries/BOSL.zip">
-    <link rel="prefetch" href="libraries/NopSCADlib.zip">
-    <link rel="prefetch" href="libraries/FunctionalOpenSCAD.zip">
-    <link rel="prefetch" href="libraries/funcutils.zip">
-    <link rel="prefetch" href="libraries/smooth-prim.zip">
-    <link rel="prefetch" href="libraries/closepoints.zip">
-    <link rel="prefetch" href="libraries/plot-function.zip">
-    <link rel="prefetch" href="libraries/YAPP_Box.zip">
-    <link rel="prefetch" href="libraries/Stemfie_OpenSCAD.zip">
-    <link rel="prefetch" href="libraries/UB.scad.zip">
-    <link rel="prefetch" href="libraries/openscad-tray.zip">
+    <script>
+      // The default sample uses text(): have its fonts on the way. Not for other scripts.
+      if (!location.hash) {
+        document.head.insertAdjacentHTML('beforeend', '<link rel="prefetch" href="libraries/fonts.zip">');
+      }
+    </script>
 
     <!-- <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js" defer></script> -->
     <script type="module" src="./model-viewer.min.js" defer></script>
@@ -118,11 +114,35 @@
       }
 
       .github-fork-ribbon:before { background-color: #333; }
+
+      /* Embed mode (set on <html> by the inline script below, then kept in sync with state.view.embed). */
+      .embed-mode .github-fork-ribbon { display: none; }
+      .embed-mode .wasm-banner { padding-right: 8px !important; }
     </style>
+    <script>
+      // Avoid a flash of the "Fork me on GitHub" ribbon in embeds before the app loads.
+      // Duplicates resolveEmbed() in src/state/embed.ts (explicit ?embed= / #embed= wins, else "is framed");
+      // the app re-applies the class from state.view.embed once it runs.
+      (function () {
+        try {
+          var raw = new URLSearchParams(location.search).get('embed');
+          if (raw === null) { var m = /^#embed(?:=([^&]*))?(?:&|$)/.exec(location.hash); if (m) raw = m[1] || ''; }
+          var on;
+          if (raw !== null) {
+            raw = raw.toLowerCase();
+            if (['', '1', 'true', 'yes', 'on'].indexOf(raw) >= 0) on = true;
+            else if (['0', 'false', 'no', 'off'].indexOf(raw) >= 0) on = false;
+          }
+          if (on === undefined) { try { on = window.self !== window.top; } catch (e) { on = true; } }
+          if (on) document.documentElement.classList.add('embed-mode');
+        } catch (e) { /* keep the default look */ }
+      })();
+    </script>
   </head>
   <body>
-    <audio id="complete-sound">
-      <source src="complete.wav" type="audio/wav">
+    <audio id="complete-sound" preload="none">
+      <source src="complete.ogg" type='audio/ogg; codecs="opus"'>
+      <source src="complete.m4a" type='audio/mp4; codecs="mp4a.40.2"'>
       Your browser does not support the audio element.
     </audio>
     <a target="_blank" class="github-fork-ribbon"

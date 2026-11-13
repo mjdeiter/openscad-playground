@@ -1,20 +1,20 @@
 // Portions of this file are Copyright 2021 Google LLC, and licensed under GPL2+. See COPYING.
 
+import './public-path.ts';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import {App} from './components/App.tsx';
 import { createEditorFS } from './fs/filesystem.ts';
-import { registerOpenSCADLanguage } from './language/openscad-register-language.ts';
 import { zipArchives } from './fs/zip-archives.ts';
-import {readStateFromFragment, hasStateFragment} from './state/fragment-state.ts'
-import { createLocalStatePersister, loadSavedState, setPersistenceMode } from './state/local-state.ts';
 import { createInitialState } from './state/initial-state.ts';
 import './index.css';
 
 import debug from 'debug';
 import { isInStandaloneMode, registerCustomAppHeightCSSProperty } from './utils.ts';
 import { State, StatePersister } from './state/app-state.ts';
-import { writeStateInFragment } from "./state/fragment-state.ts";
+import { isMcpMode } from './state/mcp-mode.ts';
+import { getSharedWasmModule } from './runner/wasm-module.ts';
+import type { ToolEventBuffer } from './state/mcp-app.ts';
+import type { App as McpApp_App } from '@modelcontextprotocol/ext-apps';
 
 import "primereact/resources/themes/lara-light-indigo/theme.css";
 import "primereact/resources/primereact.min.css";
@@ -33,36 +33,84 @@ if (process.env.NODE_ENV !== 'production') {
 declare var BrowserFS: BrowserFSInterface
 
 
-window.addEventListener('load', async () => {
-  //*
-  if (process.env.NODE_ENV === 'production') {
-    if ('serviceWorker' in navigator) {
-        try {
-            const registration = await navigator.serviceWorker.register('./sw.js');
-            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+// Start downloading and compiling the engine right away (not on `load`): it is on the critical path
+// to the first render.
+getSharedWasmModule();
 
-            registration.onupdatefound = () => {
-                const installingWorker = registration.installing;
-                if (installingWorker) {
-                  installingWorker.onstatechange = () => {
-                      if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                          // Reload to activate the service worker and apply caching
-                          window.location.reload();
-                          return;
-                      }
-                  };
-                }
-            };
-        } catch (err) {
-            console.log('ServiceWorker registration failed: ', err);
-        }
-    }
-  }
-  //*/
-  
+window.addEventListener('load', async () => {
+  const mcpMode = isMcpMode();
+
   registerCustomAppHeightCSSProperty();
 
-  const fs = await createEditorFS({prefix: '/libraries/', allowPersistence: isInStandaloneMode()});
+  // ─── MCP: connect early so resource loader is set before FS init ─
+  // The App's tool surface (see state/mcp-tools.ts) is declared during the
+  // ui/initialize handshake, so createMcpApp() registers it before connect().
+  // Tool input/result notifications that arrive before React mounts are
+  // buffered and replayed by the McpApp component.
+  let mcpApp: McpApp_App | undefined;
+  let toolEvents: ToolEventBuffer | undefined;
+  if (mcpMode) {
+    console.log('[MCP] Detected MCP mode (running in iframe)');
+    // (The MCP SDK is only loaded in MCP mode.)
+    const { createMcpApp, bufferToolEvents } = await import('./state/mcp-app.ts');
+    mcpApp = createMcpApp();
+    toolEvents = bufferToolEvents(mcpApp);
+    try {
+      await mcpApp.connect();
+      console.log('[MCP] Connected to host');
+    } catch (err) {
+      console.error('[MCP] Failed to connect to host:', err);
+      mcpApp = undefined; // fall back to standalone
+    }
+  }
+
+  console.log('[init] Creating editor FS...');
+  // In MCP mode, skip loading the library ZIPs on the main thread — workers load them independently.
+  // Otherwise they are mounted after the first render (see App).
+  const fs = await createEditorFS({prefix: '/libraries/', allowPersistence: !mcpMode && isInStandaloneMode(), skipLibraries: mcpMode, deferArchives: !mcpMode});
+  console.log('[init] Editor FS created');
+
+  const root = ReactDOM.createRoot(
+    document.getElementById('root') as HTMLElement
+  );
+
+  if (mcpMode && mcpApp && toolEvents) {
+    // ─── MCP App mode ──────────────────────────────────────────────
+    const statePersister: StatePersister = { set: async () => {} };
+    const initialState = createInitialState(null, { content: '' });
+    initialState.view.embed = true; // the MCP app is an embedded viewer; the model can switch to 'full' with set_layout
+
+    const { McpApp } = await import('./components/McpApp.tsx');
+    root.render(
+      <React.StrictMode>
+        <McpApp
+          initialState={initialState}
+          statePersister={statePersister}
+          fs={fs}
+          app={mcpApp}
+          toolEvents={toolEvents}
+        />
+      </React.StrictMode>
+    );
+  } else {
+    // ─── Standalone mode ───────────────────────────────────────────
+    renderStandalone(fs, root);
+  }
+});
+
+async function renderStandalone(fs: FS, root: ReactDOM.Root) {
+  // Dynamic imports to keep Monaco/editor out of the MCP bundle
+  const [
+    { App },
+    { registerOpenSCADLanguage },
+    { readStateFromFragment, writeStateInFragment, hasStateFragment },
+    { createLocalStatePersister, loadSavedState, setPersistenceMode },
+  ] = await Promise.all([
+    import('./components/App.tsx'),
+    import('./language/openscad-register-language.ts'),
+    import('./state/fragment-state.ts'),
+    import('./state/local-state.ts'),
+  ]);
 
   await registerOpenSCADLanguage(fs, '/', zipArchives);
 
@@ -72,17 +120,17 @@ window.addEventListener('load', async () => {
 
   if (isInStandaloneMode()) {
     setPersistenceMode('pwa');
-    const fs: FS = BrowserFS.BFSRequire('fs')
+    const bfs: FS = (globalThis as any).BrowserFS.BFSRequire('fs');
     try {
-      const data = JSON.parse(new TextDecoder("utf-8").decode(fs.readFileSync('/state.json')));
-      const {view, params} = data
+      const data = JSON.parse(new TextDecoder("utf-8").decode(bfs.readFileSync('/state.json')));
+      const {view, params} = data;
       persistedState = {view, params};
     } catch (e) {
-      console.log('Failed to read the persisted state from local storage.', e)
+      console.log('Failed to read the persisted state from local storage.', e);
     }
     statePersister = {
       set: async ({view, params}) => {
-        fs.writeFile('/state.json', JSON.stringify({view, params}));
+        bfs.writeFile('/state.json', JSON.stringify({view, params}));
       }
     };
   } else if (hasStateFragment()) {
@@ -104,14 +152,9 @@ window.addEventListener('load', async () => {
   const initialState = createInitialState(persistedState);
   localPersister?.baseline(initialState);
 
-  const root = ReactDOM.createRoot(
-    document.getElementById('root') as HTMLElement
-  );
   root.render(
     <React.StrictMode>
       <App initialState={initialState} statePersister={statePersister} fs={fs} />
     </React.StrictMode>
   );
-});
-
-
+}

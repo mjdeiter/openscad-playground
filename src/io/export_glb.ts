@@ -3,9 +3,9 @@ import { Light as LightDef, KHRLightsPunctual } from '@gltf-transform/extensions
 import { Vertex, Color, Face, IndexedPolyhedron, DEFAULT_FACE_COLOR } from './common';
 
 type Geom = {
-    positions: Float32Array;
-    indices: Uint32Array;
-    colors?: Float32Array;
+    positions: Float32Array<ArrayBuffer>;
+    indices: Uint32Array<ArrayBuffer>;
+    colors?: Float32Array<ArrayBuffer>;
 };
 
 function createPrimitive(doc: Document, baseColorFactor: Color, {positions, indices, colors}: Geom): Primitive {
@@ -108,5 +108,5 @@ export async function exportGlb(data: IndexedPolyhedron, defaultColor: Color = D
     scene.addChild(doc.createNode().setMesh(mesh));
 
     const glb = await new NodeIO().registerExtensions([KHRLightsPunctual]).writeBinary(doc);
-    return new Blob([glb], { type: 'model/gltf-binary' });
+    return new Blob([glb as Uint8Array<ArrayBuffer>], { type: 'model/gltf-binary' });
 }

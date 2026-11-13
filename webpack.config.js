@@ -14,6 +14,10 @@ const isDev = process.env.NODE_ENV !== 'production';
 /** @type {import('webpack').Configuration[]} */
 const config = [
   {
+    // Compilers must be named: the dev-server client uses the name to ignore
+    // hash updates from the sibling (worker) compiler, which otherwise cause
+    // an endless "Cannot find update" full-reload loop.
+    name: 'app',
     entry: './src/index.tsx',
     devtool: isDev ? 'source-map' : 'nosources-source-map',
     mode: isDev ? 'development' : 'production',
@@ -42,7 +46,11 @@ const config = [
         {
           test: /\.css$/i,
           use: [
-            'style-loader',
+            {
+              loader: 'style-loader',
+              // Makes url() references in the CSS (fonts) resolve against the MCP app's base URL.
+              options: { styleTagTransform: path.resolve(__dirname, 'src/style-tag-transform.ts') },
+            },
             {
               loader: 'css-loader',
               options: { url: false },
@@ -58,12 +66,18 @@ const config = [
     resolve: {
       extensions: ['.tsx', '.ts', '.js'],
     },
+    // @gltf-transform/core's NodeIO dynamically imports node:fs / node:path; we only use the in-memory API.
+    externals: { 'node:fs': 'var undefined', 'node:path': 'var undefined' },
     output: {
       filename: 'index.js',
       path: path.resolve(__dirname, 'dist'),
     },
     devServer: {
-      static: path.join(__dirname, 'dist'),
+      // CI runs the development and production e2e suites at the same time, and the production build rewrites
+      // dist/ (which the dev server also serves). With the default static watcher / live reload each of those
+      // writes can reload the page under test mid-way, which breaks tests that interact with the UI.
+      static: {directory: path.join(__dirname, 'dist'), watch: !process.env.CI},
+      liveReload: !process.env.CI,
       compress: true,
       port: 4000,
     },
@@ -71,30 +85,42 @@ const config = [
       new webpack.EnvironmentPlugin({
         'process.env.NODE_ENV': 'development',
       }),
+      // URL of the MCP setup page (e.g. '/mcp'): shows a 'Configure MCP' settings entry when non-empty.
+      new webpack.DefinePlugin({
+        'process.env.OPENSCAD_MCP_URL': JSON.stringify(process.env.OPENSCAD_MCP_URL ?? ''),
+      }),
       ...(process.env.NODE_ENV === 'production' ? [
         new WorkboxPlugin.GenerateSW({
-          exclude: [
-            /(^|\/)\./,
-            /\.map$/,
-            /^manifest.*\.js$/,
-          ],
-          // these options encourage the ServiceWorkers to get in there fast
-          // and not allow any straggling 'old' SWs to hang around
+          // Nothing is precached: precaching downloads (with cache: reload) again, at install
+          // time, everything the page has just loaded. The Service Worker only has runtime
+          // caching rules, and the page copies what it loaded into the caches once the
+          // Service Worker controls it (see src/background-loading.ts).
+          exclude: [/.*/],
+          cleanupOutdatedCaches: true,
           swDest: path.join(__dirname, 'dist', 'sw.js'),
-          maximumFileSizeToCacheInBytes: 200 * 1024 * 1024,
           clientsClaim: true,
           skipWaiting: true,
-          runtimeCaching: [{
-            urlPattern: ({ request, url }) => true,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'all',
-              expiration: {
-                maxEntries: 1000,
-                purgeOnQuotaError: true,
-              },
+          runtimeCaching: [
+            {
+              // Big, versioned by their name or rarely changing: stale-while-revalidate.
+              urlPattern: ({ url }) => url.origin === self.location.origin
+                && (/\/libraries\/[^/]+\.(zip|json)$/.test(url.pathname) || /\/openscad\.wasm$/.test(url.pathname)),
+              handler: 'StaleWhileRevalidate',
+              options: { cacheName: 'big', expiration: { maxEntries: 100, purgeOnQuotaError: true } },
             },
-          }],
+            {
+              // Cross-origin (Monaco from a CDN).
+              urlPattern: ({ url }) => url.origin !== self.location.origin,
+              handler: 'StaleWhileRevalidate',
+              options: { cacheName: 'cdn', expiration: { maxEntries: 100, purgeOnQuotaError: true } },
+            },
+            {
+              // The app itself (unhashed file names): always the latest when online.
+              urlPattern: ({ request }) => request.method === 'GET',
+              handler: 'NetworkFirst',
+              options: { cacheName: 'shell', networkTimeoutSeconds: 5 },
+            },
+          ],
         }),
       ] : []),
       new CopyPlugin({
@@ -102,6 +128,14 @@ const config = [
           {
             from: path.resolve(__dirname, 'public'),
             toType: 'dir',
+            globOptions: { ignore: ['**/openscad.fallback.js'] },
+          },
+          {
+            // Optional wasm2js build; marked as minimized so Terser skips its ~21MB.
+            from: path.resolve(__dirname, 'public/openscad.fallback.js'),
+            to: path.resolve(__dirname, 'dist'),
+            noErrorOnMissing: true,
+            info: { minimized: true },
           },
           {
             from: path.resolve(__dirname, 'node_modules/primeicons/fonts'),
@@ -121,6 +155,7 @@ const config = [
     ],
   },
   {
+    name: 'worker',
     entry: './src/runner/openscad-worker.ts',
     output: {
       filename: 'openscad-worker.js',
@@ -159,7 +194,9 @@ const config = [
         },
         {
           test: /\.wasm$/,
-          type: 'asset/resource'
+          type: 'asset/resource',
+          // Same URL as the copy in dist/ so that index.html can prefetch it.
+          generator: { filename: '[name][ext]' },
         }
       ]
     },

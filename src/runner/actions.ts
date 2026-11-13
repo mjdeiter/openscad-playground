@@ -1,6 +1,6 @@
 // Portions of this file are Copyright 2021 Google LLC, and licensed under GPL2+. See COPYING.
 
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import type { MarkerData } from './marker-types';
 import { ProcessStreams, spawnOpenSCAD } from "./openscad-runner.ts";
 import { processMergedOutputs } from "./output-parser.ts";
 import { AbortablePromise, turnIntoDelayableExecution } from '../utils.ts';
@@ -14,7 +14,7 @@ type SyntaxCheckArgs = {
   activePath: string,
   sources: Source[],
 }
-type SyntaxCheckOutput = {logText: string, markers: monaco.editor.IMarkerData[], parameterSet?: ParameterSet};
+type SyntaxCheckOutput = {logText: string, markers: MarkerData[], parameterSet?: ParameterSet};
 export const checkSyntax =
   turnIntoDelayableExecution(syntaxDelay, (sargs: SyntaxCheckArgs) => {
     const {
@@ -22,8 +22,6 @@ export const checkSyntax =
       sources,
     } = sargs;
     
-    const content = '$preview=true;\n' + sources[0].content;
-
     const outFile = 'out.json';
     const job = spawnOpenSCAD({
       mountArchives: true,
@@ -55,9 +53,11 @@ export const checkSyntax =
           }
 
           res({
+            // The sources are checked as-is (no injected prefix lines), so
+            // OpenSCAD's line numbers already match the editor's.
             ...processMergedOutputs(result.mergedOutputs, {shiftSourceLines: {
-              sourcePath: sources[0].path,
-              skipLines: 1,
+              sourcePath: activePath,
+              skipLines: 0,
             }}),
             parameterSet,
           });
@@ -74,7 +74,7 @@ var renderDelay = 1000;
 export type RenderOutput = {
   outFile: File,
   logText: string,
-  markers: monaco.editor.IMarkerData[],
+  markers: MarkerData[],
   elapsedMillis: number}
 
 export type RenderArgs = {
@@ -98,8 +98,7 @@ function formatValue(any: any): string {
     return `${any}`;
   }
 }
-export const render =
- turnIntoDelayableExecution(renderDelay, (renderArgs: RenderArgs) => {
+const renderJob = (renderArgs: RenderArgs) => {
     const {
       scadPath,
       sources,
@@ -184,5 +183,12 @@ export const render =
 
       return () => job.kill()
     });
-  });
+};
 
+/** The render the app shows: a newer call supersedes (cancels) an older one. */
+export const render = turnIntoDelayableExecution(renderDelay, renderJob);
+/**
+ * Same job with its own supersede slot, for exports: an export must neither
+ * cancel the displayed render nor be cancelled by it.
+ */
+export const renderIsolated = turnIntoDelayableExecution(renderDelay, renderJob);

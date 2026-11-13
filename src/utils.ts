@@ -1,6 +1,8 @@
 // Portions of this file are Copyright 2021 Google LLC, and licensed under GPL2+. See COPYING.
 
+import { exportSource, type SourceFileInput } from "./state/export-source.ts";
 import { Source } from "./state/app-state.ts";
+import { getResourceLoader, ResourceLoader } from "./resource-loader.ts";
 
 export function mapObject(o: any, f: (key: string, value: any) => any, ifPred: (key: string) => boolean) {
   const ret = [];
@@ -22,6 +24,15 @@ export function AbortablePromise<T>(f: (resolve: (result: T) => void, reject: (e
     kill = f(res, rej);
   });
   return Object.assign(promise, {kill: kill!});
+}
+
+/**
+ * A delayable job call that was replaced by a newer call (its timer was
+ * cleared, or its running job was killed). Always settles the replaced call so
+ * nothing awaits forever; the newer call owns the outcome.
+ */
+export class SupersededError extends Error {
+  constructor() { super('superseded by a newer call'); this.name = 'SupersededError'; }
 }
 
 // <T extends any[]>(...args: T)
@@ -65,6 +76,8 @@ export function turnIntoDelayableExecution<T extends any[], R>(
   //   return () => job.kill();
   // });
   //return (...args: T) => async ({now, callback}: {now: boolean, callback: (result?: R, error?: any) => void}) => {
+  let pendingReject: ((e: any) => void) | null = null;
+  let runningReject: ((e: any) => void) | null = null;
   return (...args: T) => ({now}: {now: boolean}) => AbortablePromise<R>((resolve, reject) => {
     let abortablePromise: AbortablePromise<R> | undefined = undefined;
     (async () => {
@@ -72,25 +85,34 @@ export function turnIntoDelayableExecution<T extends any[], R>(
         if (runningJobKillSignal) {
           runningJobKillSignal();
           runningJobKillSignal = null;
+          runningReject?.(new SupersededError()); // a killed job never settles on its own
+          runningReject = null;
         }
         abortablePromise = job(...args);
         runningJobKillSignal = abortablePromise.kill;
+        runningReject = reject;
         try {
           resolve(await abortablePromise);
         } catch (e) {
           reject(e);
         } finally {
-          runningJobKillSignal = null;
+          if (runningReject === reject) {
+            runningJobKillSignal = null;
+            runningReject = null;
+          }
         }
       }
       if (pendingId) {
         clearTimeout(pendingId);
         pendingId = null;
+        pendingReject?.(new SupersededError()); // the debounced call that will now never run
+        pendingReject = null;
       }
       if (now) {
         doExecute();
       } else {
-        pendingId = window.setTimeout(doExecute, delay);
+        pendingReject = reject;
+        pendingId = window.setTimeout(() => { pendingReject = null; pendingId = null; doExecute(); }, delay);
       }
     })();
     return () => abortablePromise?.kill();
@@ -151,20 +173,18 @@ export function downloadUrl(url: string, filename: string) {
   link.parentNode?.removeChild(link);
 }
 
-export async function fetchSource(fs: FS, {content, path, url}: Source): Promise<Uint8Array> {
+export async function fetchSource(fs: FS, {content, path, url}: Source, loader?: ResourceLoader): Promise<Uint8Array> {
+  const resolvedLoader = loader ?? getResourceLoader();
   const isText = path.endsWith('.scad') || path.endsWith('.json');
   if (content) {
     return new TextEncoder().encode(content);
   } else if (url) {
     if (isText) {
-      content = await (await fetch(url)).text();
+      content = await resolvedLoader.fetchText(url);
       return new TextEncoder().encode(content.replace(/\r\n/g, '\n'));
     } else {
-      // Fetch bytes
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
-      const data = new Uint8Array(buffer);
-      return data;
+      const buffer = await resolvedLoader.fetchBinary(url);
+      return new Uint8Array(buffer);
     }
   } else if (path) {
     const data = fs.readFileSync(path);
@@ -185,4 +205,14 @@ export function readFileAsDataURL(file: File) {
     reader.readAsDataURL(file);
   });
   // return URL.createObjectURL(file);
+}
+
+
+/** Browser download of the source of `path` (default: the active file). Returns the downloaded file name. */
+export function downloadSource(files: SourceFileInput[], activePath: string, path?: string): string {
+  const src = exportSource(files, activePath, path);
+  const url = URL.createObjectURL(new Blob([src.bytes as BlobPart], { type: src.mimeType }));
+  downloadUrl(url, src.filename);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return src.filename;
 }

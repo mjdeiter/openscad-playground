@@ -1,4 +1,7 @@
 {
+    "removedLibraries": {
+        "FunctionalOpenSCAD": "Copy the files you need into your project instead (https://github.com/thehans/FunctionalOpenSCAD)."
+    },
     "wasmBuild": {
         "url": "https://files.openscad.org/playground/OpenSCAD-2025.03.25.wasm24456-WebAssembly-web.zip",
         "target": "libs/openscad-wasm"
@@ -6,6 +9,11 @@
     "libraries": [
         {
             "name": "openscad",
+            "description": "OpenSCAD",
+            "docs": {
+                "CheatSheet": "https://openscad.org/cheatsheet/index.html",
+                "Documentation": "https://openscad.org/documentation.html"
+            },
             "repo": "https://github.com/openscad/openscad.git",
             "branch": "master",
             "zipIncludes": [
@@ -13,26 +21,36 @@
             ],
             "zipExcludes": [
                 "**/tests/**"
-            ]
+            ],
+            "commit": "8e8df3ddae295e8667cbc9f6c4fbb7c88b0ec45b"
         },
         {
             "name": "BOSL2",
+            "description": "The Belfry OpenScad Library, v2.0",
+            "docs": {
+                "CheatSheet": "https://github.com/BelfrySCAD/BOSL2/wiki/CheatSheet",
+                "Wiki": "https://github.com/BelfrySCAD/BOSL2/wiki"
+            },
             "repo": "https://github.com/BelfrySCAD/BOSL2.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE",
                 "examples"
-            ]
+            ],
+            "tag": "v2.0.782",
+            "commit": "e3d614aef7552121f993b30a6c3e87f170a2f545"
         },
         {
             "name": "BOSL",
+            "description": "The Belfry OpenScad Library",
             "repo": "https://github.com/revarbat/BOSL.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "4ce427a8a38786e5f74b728c1e33d9fe7d4904d2"
         },
         {
             "name": "NopSCADlib",
@@ -41,47 +59,50 @@
             "zipIncludes": [
                 "**/*.scad",
                 "COPYING"
-            ]
+            ],
+            "tag": "v21.43.1",
+            "commit": "53775b7e099b1256723d5ecbbe28176491a82729"
         },
         {
             "name": "funcutils",
+            "description": "OpenSCAD collection of functional programming utilities, making use of function-literals.",
             "repo": "https://github.com/thehans/funcutils.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
-        },
-        {
-            "name": "FunctionalOpenSCAD",
-            "repo": "https://github.com/thehans/FunctionalOpenSCAD.git",
-            "branch": "master",
-            "zipIncludes": [
-                "*.scad",
-                "LICENSE"
-            ]
+            ],
+            "commit": "fac6ac1269d3578b839ece088c03f404a76fb43b"
         },
         {
             "name": "YAPP_Box",
+            "description": "Yet Another Parametric Projectbox Box",
             "repo": "https://github.com/mrWheel/YAPP_Box.git",
             "branch": "main",
             "zipIncludes": [
                 "**/*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "f9400c419ef1dea7dc0b3607876989b4f3faa2b7"
         },
         {
             "name": "MCAD",
+            "description": "OpenSCAD Parametric CAD Library",
             "repo": "https://github.com/openscad/MCAD.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "bitmap/*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "bd0a7ba3f042bfbced5ca1894b236cea08904e26"
         },
         {
             "name": "boltsparts",
+            "description": "OpenSCAD library for generating bolt/nut models",
+            "docs": {
+                "Usage": "https://boltsparts.github.io/en/docs/0.3/document/openscad/usage.html"
+            },
             "repo": "https://github.com/boltsparts/boltsparts.git",
             "branch": "main",
             "zipIncludes": [
@@ -91,25 +112,34 @@
             "zipExcludes": [
                 "**/tests/**"
             ],
-            "workingDir": "openscad"
+            "workingDir": "openscad",
+            "commit": "5c83300a57761f70db87f50c9a1f647c7278a4c2"
         },
         {
             "name": "OpenSCAD-Snippet",
+            "description": "OpenSCAD Snippet Library",
+            "symlinks": {
+                "Asset_SCAD": "Asset_SCAD",
+                "Import_Library.scad": "Import_Library.scad"
+            },
             "repo": "https://github.com/AngeloNicoli/OpenSCAD-Snippet.git",
             "branch": "main",
             "zipIncludes": [
                 "**/*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "4f9e3d4d16b5e427186c1f89e10c2181c437dee6"
         },
         {
             "name": "Stemfie_OpenSCAD",
+            "description": "OpenSCAD Stemfie Library",
             "repo": "https://github.com/Cantareus/Stemfie_OpenSCAD.git",
             "branch": "main",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "440c084488915d79b06de88aac8a2a3cdb1662eb"
         },
         {
             "name": "pathbuilder",
@@ -119,7 +149,8 @@
                 "*.scad",
                 "demo/*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "a4cb54aa3a5f5c8f74da640fb553ab54bce24436"
         },
         {
             "name": "openscad_attachable_text3d",
@@ -128,71 +159,195 @@
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "f8ba8786112d3b45cc05e30d66ba400af00e9b2f"
         },
         {
             "name": "brailleSCAD",
+            "docs": {
+                "Documentation": "https://github.com/BelfrySCAD/brailleSCAD/wiki/TOC"
+            },
             "repo": "https://github.com/BelfrySCAD/brailleSCAD.git",
             "branch": "main",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "6b2e4288620f31d109f681395914679dbdbc276a"
         },
         {
             "name": "smooth-prim",
+            "description": "OpenSCAD smooth primitives library",
+            "symlinks": {
+                "smooth_prim.scad": "smooth_prim.scad"
+            },
             "repo": "https://github.com/rcolyer/smooth-prim.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE.txt"
-            ]
+            ],
+            "commit": "0d0038f984465f3eb0f6026a4d5de2f79d2dcea8"
         },
         {
             "name": "plot-function",
+            "description": "OpenSCAD Function Plotting Library",
+            "symlinks": {
+                "plot_function.scad": "plot_function.scad"
+            },
             "repo": "https://github.com/rcolyer/plot-function.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE.txt"
-            ]
+            ],
+            "commit": "5f78d0399632ded49a03edb7b695c443056ebbbd"
         },
         {
             "name": "closepoints",
+            "description": "OpenSCAD ClosePoints Library",
+            "symlinks": {
+                "closepoints.scad": "closepoints.scad"
+            },
             "repo": "https://github.com/rcolyer/closepoints.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE.txt"
-            ]
+            ],
+            "commit": "8ce827f5a7fec8afe4ab9a13a3427d685bca2ce0"
         },
         {
             "name": "UB.scad",
+            "symlinks": {
+                "ub.scad": "libraries/ub.scad"
+            },
             "repo": "https://github.com/UBaer21/UB.scad.git",
             "branch": "main",
             "zipIncludes": [
                 "libraries/*.scad",
                 "LICENSE",
                 "examples/UBexamples"
-            ]
+            ],
+            "commit": "5419befe8b3927d2300e974976ffcb831abaf644"
         },
         {
             "name": "openscad-tray",
+            "description": "OpenSCAD library to create rounded rectangular trays with optional subdividers.",
+            "symlinks": {
+                "tray.scad": "tray.scad"
+            },
             "repo": "https://github.com/sofian/openscad-tray.git",
             "branch": "main",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "9fc472032fad5d5fd3f25ea0e230b44fe95c9ccf"
         },
         {
             "name": "lasercut",
+            "description": "Module for OpenSCAD, allowing 3D models to be created from 2D lasercut parts.",
+            "symlinks": {
+                "lasercut.scad": "lasercut.scad"
+            },
             "repo": "https://github.com/bmsleight/lasercut.git",
             "branch": "master",
             "zipIncludes": [
                 "*.scad",
                 "LICENSE"
-            ]
+            ],
+            "commit": "a9815be6fcca9bc46411409aa503bbb60921264a"
+        },
+        {
+            "name": "gridfinity-rebuilt-openscad",
+            "description": "Gridfinity: modular storage bins and baseplates.",
+            "docs": {
+                "Documentation": "https://github.com/kennetek/gridfinity-rebuilt-openscad#readme"
+            },
+            "repo": "https://github.com/kennetek/gridfinity-rebuilt-openscad.git",
+            "branch": "main",
+            "zipIncludes": [
+                "*.scad",
+                "LICENSE"
+            ],
+            "tag": "2.0.0",
+            "commit": "910e22d8607fd7f5f51ad5e5cbc5287a76810bfd"
+        },
+        {
+            "name": "Round-Anything",
+            "description": "OpenSCAD library for rounding polygons, paths and 3D shapes.",
+            "symlinks": {
+                "polyround.scad": "polyround.scad",
+                "MinkowskiRound.scad": "MinkowskiRound.scad"
+            },
+            "docs": {
+                "API": "https://kurthutten.com/blog/round-anything-api/"
+            },
+            "repo": "https://github.com/Irev-Dev/Round-Anything.git",
+            "branch": "master",
+            "zipIncludes": [
+                "*.scad",
+                "LICENSE"
+            ],
+            "tag": "1.0.4",
+            "commit": "8ead00a2bf3ace4004cbd29e8909ab83e67bb155"
+        },
+        {
+            "name": "threads-scad",
+            "description": "Efficient OpenSCAD threading library.",
+            "symlinks": {
+                "threads.scad": "threads.scad"
+            },
+            "repo": "https://github.com/rcolyer/threads-scad.git",
+            "branch": "master",
+            "zipIncludes": [
+                "*.scad",
+                "LICENSE.txt"
+            ],
+            "commit": "4ae9aeb3b136f9858200f77a304b909a000ce3b4"
+        },
+        {
+            "name": "dotSCAD",
+            "description": "Math, 2D / 3D shapes, paths, patterns and algorithms library.",
+            "docs": {
+                "Documentation": "https://openhome.cc/eGossip/OpenSCAD/lib3x-index.html"
+            },
+            "repo": "https://github.com/JustinSDK/dotSCAD.git",
+            "branch": "master",
+            "zipIncludes": [
+                "src/**/*.scad",
+                "LICENSE"
+            ],
+            "tag": "v3.3",
+            "commit": "bb33edfd75cba0edbb7971606a077b9c69d0b7d2"
+        },
+        {
+            "name": "scad-utils",
+            "description": "Utility libraries for OpenSCAD: transformations, linear algebra, shapes and lists.",
+            "repo": "https://github.com/OskarLinde/scad-utils.git",
+            "branch": "master",
+            "zipIncludes": [
+                "*.scad",
+                "LICENSE"
+            ],
+            "commit": "31a4ab5b98e0a2e0531b13ee5c3a4ceb04137195"
+        },
+        {
+            "name": "KeyV2",
+            "description": "Parametric mechanical keyboard keycap library.",
+            "repo": "https://github.com/rsheldiii/KeyV2.git",
+            "branch": "master",
+            "zipIncludes": [
+                "src/**/*.scad",
+                "keys.scad",
+                "includes.scad",
+                "key_mold.scad",
+                "model_base.scad",
+                "LICENSE.md",
+                "src/libraries/scad-utils/LICENSE"
+            ],
+            "commit": "19f0d2faadd4949634c93f38d1a66869d29e8f43"
         }
     ],
     "fonts": {
@@ -241,8 +396,10 @@
             "NotoSansTibetan-Regular.ttf",
             "NotoSansTifinagh-Regular.ttf"
         ],
-        "notoBaseUrl": "https://github.com/openmaptiles/fonts/raw/master/noto-sans/",
+        "notoBaseUrl": "https://github.com/openmaptiles/fonts/raw/d48c5fce2fc58b55c98d353558d807cac45e7262/noto-sans/",
         "liberationRepo": "https://github.com/shantigilbert/liberation-fonts-ttf.git",
-        "liberationBranch": "master"
+        "liberationBranch": "master",
+        "liberationCommit": "ef7161f03e305982b0b247e9a0b7cc472376dd83",
+        "notoBranch": "master"
     }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import https from 'node:https';
@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 class OpenSCADLibrariesPlugin {
     constructor(options = {}) {
@@ -115,6 +116,38 @@ class OpenSCADLibrariesPlugin {
         }
     }
 
+    // Checks out exactly `commit` (a full SHA) of `repo` into targetDir. GitHub allows
+    // fetching arbitrary reachable SHAs, so a shallow fetch is enough.
+    async checkoutCommit(repo, targetDir, commit) {
+        console.log(`Fetching ${repo}@${commit} to ${targetDir}`);
+        const git = async (...args) => (await execFileAsync('git', args, { cwd: targetDir })).stdout.trim();
+        try {
+            await fs.rm(targetDir, { recursive: true, force: true });
+            await this.ensureDir(targetDir);
+            await git('init', '-q');
+            await git('remote', 'add', 'origin', repo);
+            await git('fetch', '-q', '--depth', '1', 'origin', commit);
+            await git('checkout', '-q', 'FETCH_HEAD');
+            await git('submodule', 'update', '--init', '--recursive', '--depth', '1');
+        } catch (error) {
+            console.error(`Failed to fetch ${repo}@${commit}:`, error.message);
+            await fs.rm(targetDir, { recursive: true, force: true });
+            throw error;
+        }
+    }
+
+    // True if targetDir is a git checkout whose HEAD is `commit`.
+    // A symlinked dir (local development checkout, see README) is always left alone.
+    async isAtCommit(targetDir, commit) {
+        try {
+            if ((await fs.lstat(targetDir)).isSymbolicLink()) return true;
+            const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: targetDir });
+            return stdout.trim() === commit;
+        } catch {
+            return false;
+        }
+    }
+
     async createZip(sourceDir, outputPath, includes = [], excludes = [], workingDir = '.') {
         await this.ensureDir(path.dirname(outputPath));
 
@@ -124,7 +157,10 @@ class OpenSCADLibrariesPlugin {
         let findCmd = '';
         if (includes.length > 0) {
             const findPatterns = includes.map(pattern => {
-                if (pattern.includes('**/*.')) {
+                if (pattern.startsWith('**/') && !pattern.slice(3).includes('/')) {
+                    // Any depth, including the repository root (find's -path "./**/*" would skip root files).
+                    return `-name "${pattern.slice(3)}"`;
+                } else if (pattern.includes('**/*.')) {
                     const parts = pattern.split('/');
                     const dir = parts[0];
                     const filePattern = parts[parts.length - 1];
@@ -132,6 +168,8 @@ class OpenSCADLibrariesPlugin {
                 } else if (pattern.includes('**')) {
                     const filePattern = pattern.replace('**/', '');
                     return `-name "${filePattern}"`;
+                } else if (pattern.includes('*') && pattern.includes('/')) {
+                    return `-path "./${pattern}"`;
                 } else if (pattern.includes('*')) {
                     return `-name "${pattern}"`;
                 } else if (pattern.includes('/')) {
@@ -153,6 +191,9 @@ class OpenSCADLibrariesPlugin {
             }).join(' ');
             findCmd += ` ${excludePatterns}`;
         }
+
+        // `zip` updates an existing archive in place, which would keep stale entries.
+        await fs.rm(outputPath, { force: true });
 
         const zipCmd = `cd ${fullSourceDir} && ${findCmd} | zip -r ${path.resolve(outputPath)} -@`;
 
@@ -223,7 +264,11 @@ class OpenSCADLibrariesPlugin {
         }
 
         // Clone liberation fonts if not exists
-        if (!existsSync(liberationDir)) {
+        if (fonts.liberationCommit) {
+            if (!(await this.isAtCommit(liberationDir, fonts.liberationCommit))) {
+                await this.checkoutCommit(fonts.liberationRepo, liberationDir, fonts.liberationCommit);
+            }
+        } else if (!existsSync(liberationDir)) {
             await this.cloneRepo(fonts.liberationRepo, liberationDir, fonts.liberationBranch);
         }
 
@@ -243,7 +288,12 @@ class OpenSCADLibrariesPlugin {
         const zipPath = path.join(this.publicLibsDir, `${library.name}.zip`);
 
         // Clone repository if not exists
-        if (!existsSync(libDir)) {
+        if (library.commit) {
+            if (!(await this.isAtCommit(libDir, library.commit))) {
+                await this.checkoutCommit(library.repo, libDir, library.commit);
+            }
+        } else if (!existsSync(libDir)) {
+            console.warn(`Warning: ${library.name} is not pinned to a commit (run npm run libs:update)`);
             await this.cloneRepo(library.repo, libDir, library.branch);
         }
 
@@ -265,6 +315,33 @@ class OpenSCADLibrariesPlugin {
         for (const library of this.config.libraries) {
             await this.buildLibrary(library);
         }
+        await this.writeIndex();
+    }
+
+    /**
+     * Writes `libraries/index.json`: for each library its zip size and the .scad files in
+     * its zip with their (uncompressed) sizes, so that the UI can list libraries that
+     * aren't mounted (file picker, completions) without fetching their archive.
+     */
+    async writeIndex() {
+        const libraries = {};
+        for (const { name } of this.config.libraries) {
+            const zipPath = path.join(this.publicLibsDir, `${name}.zip`);
+            const { stdout } = await execAsync(`unzip -Z -l ${JSON.stringify(zipPath)}`, { maxBuffer: 64 * 1024 * 1024 });
+            const files = [];
+            for (const line of stdout.split('\n')) {
+                // -rw-r--r--  3.0 unx     1234 tx      567 defN 25-Mar-25 23:53 path/to/file.scad
+                const m = line.match(/^-\S+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+\S+\s+\S+\s+\S+\s+(.+)$/);
+                if (m && m[2].endsWith('.scad')) {
+                    files.push([m[2], Number(m[1])]);
+                }
+            }
+            files.sort((a, b) => a[0].localeCompare(b[0]));
+            libraries[name] = { zipBytes: (await fs.stat(zipPath)).size, files };
+        }
+        const indexPath = path.join(this.publicLibsDir, 'index.json');
+        await fs.writeFile(indexPath, JSON.stringify({ version: 1, libraries }));
+        console.log(`Wrote ${indexPath}`);
     }
 
     async clean() {
@@ -276,6 +353,7 @@ class OpenSCADLibrariesPlugin {
             'public/openscad.js',
             'public/openscad.wasm',
             `${this.publicLibsDir}/*.zip`,
+            `${this.publicLibsDir}/index.json`,
             this.srcWasmDir
         ];
 
