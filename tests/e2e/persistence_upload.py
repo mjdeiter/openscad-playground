@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
 
     model_src = ''
     for _ in range(60):
-        model_src = page.evaluate("() => document.querySelector('model-viewer')?.getAttribute('src') || ''")
+        model_src = page.evaluate("() => document.querySelector('model-viewer.main-viewer')?.src || ''")
         if model_src: break
         time.sleep(1)
     check(model_src.startswith(('data:', 'blob:')), 'wrap.scad (extruded uploaded DXF) rendered a model in the viewer')
